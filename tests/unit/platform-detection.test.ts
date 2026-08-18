@@ -48,3 +48,21 @@ describe('console categories', () => {
     expect(byId.get(1020)).toBe('Console/PSP');
   });
 });
+
+describe('console games versus untagged releases', () => {
+  const isConsole = (p: string): boolean =>
+    (IndexerService as never as { isConsolePlatform(p: string): boolean }).isConsolePlatform(p);
+
+  test('treats desktop platforms as non-console', () => {
+    expect(isConsole('PC (Microsoft Windows)')).toBe(false);
+    expect(isConsole('Windows')).toBe(false);
+    expect(isConsole('Linux')).toBe(false);
+    expect(isConsole('Mac')).toBe(false);
+  });
+
+  test('treats consoles as console', () => {
+    expect(isConsole('PlayStation 4')).toBe(true);
+    expect(isConsole('Nintendo Switch')).toBe(true);
+    expect(isConsole('PlayStation 2')).toBe(true);
+  });
+});

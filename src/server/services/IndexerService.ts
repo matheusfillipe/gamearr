@@ -14,6 +14,9 @@ export interface ScoredRelease extends ReleaseSearchResult {
   releaseType: ReleaseType;
 }
 
+/** Enough to sink an untagged PC release below a correctly tagged console one. */
+const UNTAGGED_CONSOLE_PENALTY = 75;
+
 export class IndexerService {
 
   /**
@@ -255,6 +258,11 @@ export class IndexerService {
     'Sega Saturn': [/\bSega\s*Saturn\b/i],
   };
 
+  /** Platforms that a desktop release cannot satisfy. */
+  private static isConsolePlatform(platform: string): boolean {
+    return !/\b(PC|Windows|Win|Mac|macOS|OSX|Linux)\b/i.test(platform);
+  }
+
   /**
    * Detect platform from release title
    * Returns the detected platform or null if none found
@@ -352,6 +360,12 @@ export class IndexerService {
         // Correct platform - small bonus
         score += 10;
       }
+    } else if (game.platform && IndexerService.isConsolePlatform(game.platform)) {
+      // Scene PC releases almost never name their platform, so an untagged release competing
+      // for a console game is far more likely to be the PC build than an untagged port.
+      // Without this, a PC repack outscores a correctly tagged console release.
+      score -= UNTAGGED_CONSOLE_PENALTY;
+      logger.debug(`No platform in "${release.title}" while game is ${game.platform}; treating as PC`);
     }
 
     // Title matching
