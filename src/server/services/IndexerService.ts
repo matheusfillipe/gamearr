@@ -232,7 +232,27 @@ export class IndexerService {
     'Xbox One': [/\bXbox\s*One\b/i, /\bXB1\b/i, /\bXBOX1\b/i],
     'Xbox Series X|S': [/\bXbox\s*Series\b/i, /\bXSX\b/i, /\bXSS\b/i],
     // Nintendo
-    'Nintendo Switch': [/\bSwitch\b/i, /\bNSW\b/i, /\bNintendo\s*Switch\b/i],
+    'Nintendo Switch': [/\bNSW\b/i, /\bNintendo\s*Switch\b/i, /\bSwitch\b/i],
+    // Retro. Release names rarely spell the system out, so these run last and only settle
+    // ties that the modern tokens above leave open.
+    'PlayStation': [/\bPS1\b/i, /\bPSX\b/i, /\bPlayStation\s*1\b/i],
+    'PlayStation 2': [/\bPS2\b/i, /\bPlayStation\s*2\b/i],
+    'PlayStation 3': [/\bPS3\b/i, /\bPlayStation\s*3\b/i],
+    'PlayStation Portable': [/\bPSP\b/i, /\bPlayStation\s*Portable\b/i],
+    'PlayStation Vita': [/\bPS\s*Vita\b/i, /\bPSVita\b/i],
+    'Xbox 360': [/\bXbox\s*360\b/i, /\bX360\b/i],
+    'Xbox': [/\bXbox\b/i, /\bXBOX\b/],
+    'Nintendo GameCube': [/\bGameCube\b/i, /\bNGC\b/i, /\bGCN\b/i],
+    'Wii U': [/\bWii\s*U\b/i, /\bWiiU\b/i],
+    'Wii': [/\bWii\b/i],
+    'Nintendo 64': [/\bN64\b/i, /\bNintendo\s*64\b/i],
+    'Super Nintendo Entertainment System': [/\bSNES\b/i, /\bSuper\s*Nintendo\b/i],
+    'Nintendo DS': [/\bNDS\b/i, /\bNintendo\s*DS\b/i],
+    'Nintendo 3DS': [/\b3DS\b/i],
+    'Game Boy Advance': [/\bGBA\b/i, /\bGame\s*Boy\s*Advance\b/i],
+    'Sega Genesis': [/\bMega\s*Drive\b/i, /\bSega\s*Genesis\b/i],
+    'Dreamcast': [/\bDreamcast\b/i],
+    'Sega Saturn': [/\bSega\s*Saturn\b/i],
   };
 
   /**

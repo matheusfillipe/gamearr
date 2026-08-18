@@ -52,6 +52,9 @@ export const PC_CATEGORIES: Category[] = [
 ];
 
 // Console Categories (1000+)
+// Names follow the Torznab tree Prowlarr actually serves. Systems newer than the spec
+// (Switch, PS5, Xbox Series) and everything retro have no id of their own and arrive
+// under Console/Other, so pair a specific id with 1090 or 1000 when searching for those.
 export const CONSOLE_CATEGORIES: Category[] = [
   {
     id: 1000,
@@ -85,13 +88,13 @@ export const CONSOLE_CATEGORIES: Category[] = [
   },
   {
     id: 1060,
-    name: 'Console/Wii U',
-    description: 'Nintendo Wii U',
+    name: 'Console/Wiiware',
+    description: 'WiiWare downloadable titles',
   },
   {
     id: 1070,
-    name: 'Console/Xbox One',
-    description: 'Xbox One',
+    name: 'Console/Xbox 360 DLC',
+    description: 'Xbox 360 downloadable content',
   },
   {
     id: 1080,
@@ -100,8 +103,8 @@ export const CONSOLE_CATEGORIES: Category[] = [
   },
   {
     id: 1090,
-    name: 'Console/PS4',
-    description: 'PlayStation 4',
+    name: 'Console/Other',
+    description: 'Anything without a category of its own: PS1, PS2, GameCube, N64, SNES, Switch, PS5, Xbox Series',
   },
   {
     id: 1110,
@@ -115,18 +118,18 @@ export const CONSOLE_CATEGORIES: Category[] = [
   },
   {
     id: 1130,
-    name: 'Console/Switch',
-    description: 'Nintendo Switch',
+    name: 'Console/Wii U',
+    description: 'Nintendo Wii U',
   },
   {
     id: 1140,
-    name: 'Console/Xbox Series X',
-    description: 'Xbox Series X/S',
+    name: 'Console/Xbox One',
+    description: 'Xbox One',
   },
   {
     id: 1180,
-    name: 'Console/PS5',
-    description: 'PlayStation 5',
+    name: 'Console/PS4',
+    description: 'PlayStation 4',
   },
 ];
 
