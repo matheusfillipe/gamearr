@@ -15,6 +15,8 @@ interface QBittorrentCategory {
   savePath: string;
 }
 
+const MAX_REDIRECTS = 5;
+
 export class QBittorrentClient {
   private host: string;
   private username: string;
@@ -197,31 +199,35 @@ export class QBittorrentClient {
 
   /**
    * Add a torrent by URL or magnet link
-   * For magnet links: sends URL directly
-   * For .torrent URLs: downloads the file first, then uploads as binary
+   * For magnet links: sends the URL straight to qBittorrent
+   * For HTTP URLs: lets qBittorrent fetch them first, since an indexer proxy link often
+   *   redirects to a magnet, which only a torrent client can act on. Falls back to
+   *   downloading the .torrent here when qBittorrent cannot reach the URL itself
    * If fallbackUrl is provided and primary URL fails, retries with fallback
    */
   async addTorrent(url: string, options?: Partial<AddTorrentOptions>, fallbackUrl?: string, fetchHeaders?: Record<string, string>): Promise<string> {
     const isMagnet = url.startsWith('magnet:');
-    logger.info(`Adding ${isMagnet ? 'magnet' : 'torrent file'} to qBittorrent`);
+    logger.info(`Adding ${isMagnet ? 'magnet' : 'torrent URL'} to qBittorrent`);
 
     try {
       if (isMagnet) {
         return await this.addTorrentByUrl(url, options);
-      } else {
+      }
+
+      try {
+        return await this.addTorrentByUrl(url, options);
+      } catch (urlError) {
+        logger.warn(
+          `Direct URL add failed, downloading the .torrent here instead: ${urlError instanceof Error ? urlError.message : urlError}`
+        );
         return await this.addTorrentByFile(url, options, fetchHeaders);
       }
     } catch (error) {
       // If primary URL failed and we have a fallback, try it
       if (fallbackUrl && fallbackUrl !== url) {
-        const isFallbackMagnet = fallbackUrl.startsWith('magnet:');
-        logger.warn(`Primary download URL failed, trying fallback (${isFallbackMagnet ? 'magnet' : 'torrent file'})...`);
+        logger.warn('Primary download URL failed, trying fallback...');
         try {
-          if (isFallbackMagnet) {
-            return await this.addTorrentByUrl(fallbackUrl, options);
-          } else {
-            return await this.addTorrentByFile(fallbackUrl, options, fetchHeaders);
-          }
+          return await this.addTorrent(fallbackUrl, options, undefined, fetchHeaders);
         } catch (fallbackError) {
           logger.error('Fallback URL also failed:', fallbackError);
           // Throw the original error since it's more relevant
@@ -276,8 +282,31 @@ export class QBittorrentClient {
   private async addTorrentByFile(url: string, options?: Partial<AddTorrentOptions>, fetchHeaders?: Record<string, string>): Promise<string> {
     logger.debug(`Downloading .torrent file from: ${url.substring(0, 80)}...`);
 
-    // Download the .torrent file (include any provided headers, e.g. Prowlarr API key)
-    const response = await fetch(url, fetchHeaders ? { headers: fetchHeaders } : undefined);
+    // Redirects are followed by hand: an indexer proxy link frequently answers with a 30x to
+    // a magnet URI, and handing a magnet: location to fetch() fails as an unreachable host
+    // rather than as something a torrent client could have used.
+    let response = await fetch(url, {
+      redirect: 'manual',
+      ...(fetchHeaders ? { headers: fetchHeaders } : {}),
+    });
+
+    let hops = 0;
+    while (response.status >= 300 && response.status < 400 && hops < MAX_REDIRECTS) {
+      const location = response.headers.get('location');
+      if (!location) break;
+
+      if (location.startsWith('magnet:')) {
+        logger.info('Indexer redirected to a magnet link; handing it to qBittorrent');
+        return await this.addTorrentByUrl(location, options);
+      }
+
+      hops++;
+      response = await fetch(new URL(location, url).toString(), {
+        redirect: 'manual',
+        ...(fetchHeaders ? { headers: fetchHeaders } : {}),
+      });
+    }
+
     if (!response.ok) {
       throw new QBittorrentError(
         `Failed to download .torrent file: ${response.status} ${response.statusText}`,
