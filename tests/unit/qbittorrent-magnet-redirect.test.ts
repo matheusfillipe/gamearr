@@ -12,44 +12,23 @@ afterEach(() => {
 /**
  * An indexer proxy link commonly answers with a 30x to a magnet URI. Following that with
  * fetch() reports the magnet as an unreachable host, which surfaced to users as
- * "Unable to connect. Is the computer able to access the url?" against a healthy client.
+ * "Unable to connect. Is the computer able to access the url?" against a healthy client,
+ * so the redirect is followed by hand and the magnet handed to the client.
+ *
+ * The release URL is resolved here rather than passed straight to qBittorrent because
+ * qBittorrent answers "Ok." to a URL add before it has fetched anything: an indexer that
+ * answers 500 is then indistinguishable from a successful grab.
  */
-describe('QBittorrentClient magnet redirects', () => {
-  test('hands an HTTP release URL to qBittorrent rather than resolving it first', async () => {
-    const seen: string[] = [];
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      seen.push(url);
-      if (url.includes('/auth/login')) return new Response('Ok.', { status: 200 });
-      if (url.includes('/torrents/add')) {
-        expect(String(init?.body)).toContain(encodeURIComponent(PROXY_URL).slice(0, 20));
-        return new Response('Ok.', { status: 200 });
-      }
-      throw new Error(`unexpected fetch: ${url}`);
-    }) as typeof fetch;
-
-    const client = new QBittorrentClient({ host: 'http://qbittorrent:5080', username: 'u', password: 'p' });
-    await client.addTorrent(PROXY_URL, { category: 'gamearr' });
-
-    // The proxy URL must never be fetched here; qBittorrent resolves it.
-    expect(seen.some((u) => u.startsWith('http://prowlarr:9696'))).toBe(false);
-  });
-
-  test('falls back to the magnet when qBittorrent cannot fetch the URL itself', async () => {
-    let addCalls = 0;
+describe('QBittorrentClient release URLs', () => {
+  test('follows a redirect to a magnet and hands the magnet to qBittorrent', async () => {
     const bodies: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/auth/login')) return new Response('Ok.', { status: 200 });
       if (url.includes('/torrents/add')) {
-        addCalls++;
-        const body = String(init?.body);
-        bodies.push(body);
-        // First attempt: qBittorrent refuses the proxy URL it cannot reach.
-        if (addCalls === 1) return new Response('Fails.', { status: 200 });
+        bodies.push(String(init?.body));
         return new Response('Ok.', { status: 200 });
       }
-      // The server-side fallback then sees the redirect to a magnet.
       if (url.startsWith('http://prowlarr:9696')) {
         return new Response(null, { status: 301, headers: { location: MAGNET } });
       }
@@ -59,7 +38,72 @@ describe('QBittorrentClient magnet redirects', () => {
     const client = new QBittorrentClient({ host: 'http://qbittorrent:5080', username: 'u', password: 'p' });
     await client.addTorrent(PROXY_URL, { category: 'gamearr' });
 
-    expect(addCalls).toBe(2);
-    expect(decodeURIComponent(bodies[1])).toContain('magnet:?xt=urn:btih:B5D908DE');
+    expect(decodeURIComponent(bodies[0])).toContain('magnet:?xt=urn:btih:B5D908DE');
+  });
+
+  test('rejects an indexer error page rather than reporting a grab', async () => {
+    const addBodies: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/auth/login')) return new Response('Ok.', { status: 200 });
+      if (url.includes('/torrents/add')) {
+        addBodies.push(String(init?.body));
+        return new Response('Ok.', { status: 200 });
+      }
+      if (url.startsWith('http://prowlarr:9696')) {
+        return new Response('<error code="500" description="Download selectors didn\'t match" />', {
+          status: 500,
+          statusText: 'Internal Server Error',
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const client = new QBittorrentClient({ host: 'http://qbittorrent:5080', username: 'u', password: 'p' });
+
+    await expect(client.addTorrent(PROXY_URL, { category: 'gamearr' })).rejects.toThrow(/500/);
+    expect(addBodies).toHaveLength(0);
+  });
+
+  test('hands the URL to qBittorrent when this process cannot reach the indexer', async () => {
+    const bodies: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/auth/login')) return new Response('Ok.', { status: 200 });
+      if (url.includes('/torrents/add')) {
+        bodies.push(String(init?.body));
+        return new Response('Ok.', { status: 200 });
+      }
+      if (url.startsWith('http://prowlarr:9696')) {
+        throw new TypeError('Unable to connect');
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const client = new QBittorrentClient({ host: 'http://qbittorrent:5080', username: 'u', password: 'p' });
+    await client.addTorrent(PROXY_URL, { category: 'gamearr' });
+
+    expect(decodeURIComponent(bodies[0])).toContain(PROXY_URL);
+  });
+
+  test('tries the magnet fallback when the release URL is unusable', async () => {
+    const bodies: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/auth/login')) return new Response('Ok.', { status: 200 });
+      if (url.includes('/torrents/add')) {
+        bodies.push(String(init?.body));
+        return new Response('Ok.', { status: 200 });
+      }
+      if (url.startsWith('http://prowlarr:9696')) {
+        return new Response('nope', { status: 404, statusText: 'Not Found' });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const client = new QBittorrentClient({ host: 'http://qbittorrent:5080', username: 'u', password: 'p' });
+    await client.addTorrent(PROXY_URL, { category: 'gamearr' }, MAGNET);
+
+    expect(decodeURIComponent(bodies[0])).toContain('magnet:?xt=urn:btih:B5D908DE');
   });
 });
