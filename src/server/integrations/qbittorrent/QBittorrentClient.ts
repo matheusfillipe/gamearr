@@ -200,9 +200,13 @@ export class QBittorrentClient {
   /**
    * Add a torrent by URL or magnet link
    * For magnet links: sends the URL straight to qBittorrent
-   * For HTTP URLs: lets qBittorrent fetch them first, since an indexer proxy link often
-   *   redirects to a magnet, which only a torrent client can act on. Falls back to
-   *   downloading the .torrent here when qBittorrent cannot reach the URL itself
+   * For HTTP URLs: downloads the .torrent here and uploads the bytes, so a dead indexer
+   *   link is reported as the failure it is. qBittorrent answers "Ok." to a URL add
+   *   before it has fetched anything, then discards whatever comes back, so handing it
+   *   an indexer proxy link that answers 500 looks exactly like a successful grab and
+   *   leaves the release stuck in "downloading" forever. Redirects to a magnet are
+   *   followed by hand on this path, so nothing is lost by fetching it here first
+   * Falls back to letting qBittorrent fetch the URL when this process cannot reach it
    * If fallbackUrl is provided and primary URL fails, retries with fallback
    */
   async addTorrent(url: string, options?: Partial<AddTorrentOptions>, fallbackUrl?: string, fetchHeaders?: Record<string, string>): Promise<string> {
@@ -215,12 +219,18 @@ export class QBittorrentClient {
       }
 
       try {
-        return await this.addTorrentByUrl(url, options);
-      } catch (urlError) {
-        logger.warn(
-          `Direct URL add failed, downloading the .torrent here instead: ${urlError instanceof Error ? urlError.message : urlError}`
-        );
         return await this.addTorrentByFile(url, options, fetchHeaders);
+      } catch (fetchError) {
+        // An answer we could read and rejected is a real failure and must surface.
+        // Only an unreachable URL earns the handoff, since qBittorrent may sit on a
+        // different network path to the indexer than this process does.
+        if (fetchError instanceof QBittorrentError) {
+          throw fetchError;
+        }
+        logger.warn(
+          `Could not fetch the .torrent here, letting qBittorrent try the URL itself: ${fetchError instanceof Error ? fetchError.message : fetchError}`
+        );
+        return await this.addTorrentByUrl(url, options);
       }
     } catch (error) {
       // If primary URL failed and we have a fallback, try it

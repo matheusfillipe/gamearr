@@ -730,6 +730,42 @@ describe('QBittorrentClient', () => {
         await expect(client.addTorrent(torrentUrl)).rejects.toThrow(QBittorrentError);
       });
 
+      it('should reject an indexer error page instead of reporting a successful grab', async () => {
+        // qBittorrent answers "Ok." to a URL add before it has fetched anything, so an
+        // indexer link that answers 500 used to look identical to a real grab.
+        const torrentUrl = 'http://prowlarr:9696/57/download?apikey=k&link=abc';
+
+        global.fetch = mock(() =>
+          Promise.resolve(
+            new Response('<error code="500" description="Download selectors did not match" />', {
+              status: 500,
+              statusText: 'Internal Server Error',
+            })
+          )
+        ) as typeof fetch;
+
+        await expect(client.addTorrent(torrentUrl)).rejects.toThrow(QBittorrentError);
+        // The URL must never have been handed to qBittorrent as a fallback.
+        expect(mockFetchWithRetry).not.toHaveBeenCalled();
+      });
+
+      it('should let qBittorrent fetch the URL when this process cannot reach it', async () => {
+        const torrentUrl = 'http://indexer.internal/test.torrent';
+
+        global.fetch = mock(() => Promise.reject(new TypeError('Unable to connect'))) as typeof fetch;
+
+        mockFetchWithRetry.mockResolvedValueOnce(
+          new Response('Ok.', {
+            headers: { 'set-cookie': 'SID=testsession; path=/' },
+          })
+        );
+        mockFetchWithRetry.mockResolvedValueOnce(new Response('Ok.'));
+
+        expect(await client.addTorrent(torrentUrl)).toBe('Ok.');
+        const addCall = mockFetchWithRetry.mock.calls[1];
+        expect(addCall[1]?.body).toContain(encodeURIComponent(torrentUrl));
+      });
+
       it('should include options when uploading torrent file', async () => {
         const torrentUrl = 'http://example.com/test.torrent';
         const mockTorrentData = new ArrayBuffer(100);
