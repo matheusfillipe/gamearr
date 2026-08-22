@@ -250,6 +250,25 @@ export class QBittorrentClient {
   }
 
   /**
+   * The torrent qBittorrent already holds for this magnet, if any. Only hex infohashes are
+   * matched; a base32 magnet is left to the caller's error path rather than guessed at.
+   */
+  private async findByMagnetHash(url: string): Promise<TorrentInfo | null> {
+    const match = /xt=urn:btih:([a-fA-F0-9]{40})/.exec(url);
+    if (!match) return null;
+
+    const hash = match[1].toLowerCase();
+    try {
+      const torrents = await this.getTorrents();
+      return torrents.find((t) => t.hash.toLowerCase() === hash) || null;
+    } catch (error) {
+      // This runs while reporting another failure, so it must never replace it.
+      logger.warn(`Could not check qBittorrent for an existing torrent: ${error instanceof Error ? error.message : error}`);
+      return null;
+    }
+  }
+
+  /**
    * Add torrent by magnet URL (sent directly to qBittorrent)
    */
   private async addTorrentByUrl(url: string, options?: Partial<AddTorrentOptions>): Promise<string> {
@@ -276,6 +295,16 @@ export class QBittorrentClient {
     });
 
     if (result === 'Fails.') {
+      // "Fails." covers both a torrent qBittorrent could not read and one it already has,
+      // and the second is not a failure: reporting it as one sends the release to `failed`,
+      // which resets the game to `wanted` and grabs again, so every retry of an in-flight
+      // download leaves another dead torrent behind. A magnet names its own infohash, so
+      // ask the client whether it is already holding this one.
+      const existing = await this.findByMagnetHash(url);
+      if (existing) {
+        logger.info(`Already downloading in qBittorrent: ${existing.name}`);
+        return 'Ok.';
+      }
       throw new QBittorrentError(
         'qBittorrent rejected the torrent - it may be invalid or already exists',
         ErrorCode.QBITTORRENT_ERROR

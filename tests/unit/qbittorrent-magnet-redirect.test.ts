@@ -1,5 +1,6 @@
 import { describe, expect, test, afterEach } from 'bun:test';
 import { QBittorrentClient } from '../../src/server/integrations/qbittorrent/QBittorrentClient';
+import { QBittorrentError } from '../../src/server/utils/errors';
 
 const originalFetch = globalThis.fetch;
 const PROXY_URL = 'http://prowlarr:9696/15/download?apikey=k&link=abc';
@@ -105,5 +106,40 @@ describe('QBittorrentClient release URLs', () => {
     await client.addTorrent(PROXY_URL, { category: 'gamearr' }, MAGNET);
 
     expect(decodeURIComponent(bodies[0])).toContain('magnet:?xt=urn:btih:B5D908DE');
+  });
+
+  test('treats a torrent qBittorrent already holds as grabbed, not failed', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/auth/login')) return new Response('Ok.', { status: 200 });
+      if (url.includes('/torrents/add')) return new Response('Fails.', { status: 200 });
+      if (url.includes('/torrents/info')) {
+        return new Response(
+          JSON.stringify([
+            { hash: 'b5d908de3554374a74de56903fae6a27f04051ff', name: 'Game', added_on: 0, size: 1 },
+          ]),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const client = new QBittorrentClient({ host: 'http://qbittorrent:5080', username: 'u', password: 'p' });
+    expect(await client.addTorrent(MAGNET, { category: 'gamearr' })).toBe('Ok.');
+  });
+
+  test('still fails when qBittorrent rejects a magnet it does not hold', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/auth/login')) return new Response('Ok.', { status: 200 });
+      if (url.includes('/torrents/add')) return new Response('Fails.', { status: 200 });
+      if (url.includes('/torrents/info')) {
+        return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const client = new QBittorrentClient({ host: 'http://qbittorrent:5080', username: 'u', password: 'p' });
+    await expect(client.addTorrent(MAGNET, { category: 'gamearr' })).rejects.toThrow(QBittorrentError);
   });
 });
